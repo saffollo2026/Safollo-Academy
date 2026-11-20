@@ -1,4 +1,4 @@
-name: Build Saffollo Academy APK
+name: Build Fullscreen Saffollo APK
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Create Android Project Files
+      - name: Create Fullscreen Android App
         run: |
           mkdir -p app/src/main/java/com/saffollo/academy app/src/main/res/drawable
 
@@ -67,10 +67,10 @@ jobs:
 
               defaultConfig {
                   applicationId "com.saffollo.academy"
-                  minSdk 21
+                  minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "2.0"
               }
 
               buildTypes {
@@ -86,7 +86,7 @@ jobs:
           }
 
           dependencies {
-              implementation 'androidx.browser:browser:1.8.0'
+              implementation 'androidx.webkit:webkit:1.8.0'
           }
           EOF
 
@@ -96,23 +96,19 @@ jobs:
 
               <uses-permission android:name="android.permission.INTERNET" />
 
-              <queries>
-                  <intent>
-                      <action android:name="android.support.customtabs.action.CustomTabsService" />
-                  </intent>
-              </queries>
-
               <application
                   android:allowBackup="true"
+                  android:usesCleartextTraffic="true"
                   android:icon="@drawable/ic_launcher"
                   android:roundIcon="@drawable/ic_launcher"
                   android:label="সাফল্য একাডেমি"
                   android:supportsRtl="true"
-                  android:theme="@android:style/Theme.Translucent.NoTitleBar">
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
                   <activity
                       android:name=".MainActivity"
-                      android:exported="true">
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -128,58 +124,157 @@ jobs:
 
           import android.app.Activity;
           import android.content.Intent;
+          import android.content.res.ColorStateList;
           import android.graphics.Color;
           import android.net.Uri;
           import android.os.Bundle;
-          import androidx.browser.customtabs.CustomTabColorSchemeParams;
-          import androidx.browser.customtabs.CustomTabsIntent;
+          import android.view.View;
+          import android.webkit.CookieManager;
+          import android.webkit.DownloadListener;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.ProgressBar;
+          import androidx.webkit.WebSettingsCompat;
+          import androidx.webkit.WebViewFeature;
+          import java.util.Collections;
+          import java.util.HashMap;
+          import java.util.Map;
 
           public class MainActivity extends Activity {
-              private static final String SITE_URL = "https://saffollo.com";
-              private boolean hasLaunched = false;
+              private static final String SITE_URL = "https://saffollo.com/";
+              private static final int FILE_CHOOSER_REQUEST_CODE = 100;
+
+              private WebView webView;
+              private ProgressBar progressBar;
+              private ValueCallback<Uri[]> filePathCallback;
+              private final Map<String, String> cleanHeaders = new HashMap<>();
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-                  if (savedInstanceState != null) {
-                      hasLaunched = savedInstanceState.getBoolean("hasLaunched", false);
+                  getWindow().setStatusBarColor(Color.parseColor("#003366"));
+
+                  cleanHeaders.put("X-Requested-With", "");
+
+                  FrameLayout root = new FrameLayout(this);
+
+                  webView = new WebView(this);
+                  root.addView(webView, new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT,
+                          FrameLayout.LayoutParams.MATCH_PARENT
+                  ));
+
+                  progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+                  progressBar.setMax(100);
+                  progressBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#f59e0b")));
+                  FrameLayout.LayoutParams pbParams = new FrameLayout.LayoutParams(
+                          FrameLayout.LayoutParams.MATCH_PARENT, 10
+                  );
+                  root.addView(progressBar, pbParams);
+
+                  setContentView(root);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setLoadWithOverviewMode(true);
+                  settings.setUseWideViewPort(true);
+                  settings.setUserAgentString("Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36");
+
+                  if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                      WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, Collections.emptySet());
+                  }
+
+                  CookieManager cookieManager = CookieManager.getInstance();
+                  cookieManager.setAcceptCookie(true);
+                  cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+                  webView.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          Uri uri = request.getUrl();
+                          String url = uri.toString();
+                          if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("whatsapp:") || url.startsWith("intent:")) {
+                              try {
+                                  startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                              } catch (Exception ignored) {}
+                              return true;
+                          }
+                          if ("GET".equalsIgnoreCase(request.getMethod()) && (url.startsWith("http://") || url.startsWith("https://"))) {
+                              String host = uri.getHost();
+                              if (host != null && host.contains("saffollo.com")) {
+                                  view.loadUrl(url, cleanHeaders);
+                                  return true;
+                              }
+                          }
+                          return false;
+                      }
+                  });
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onProgressChanged(WebView view, int newProgress) {
+                          if (newProgress < 100) {
+                              progressBar.setVisibility(View.VISIBLE);
+                              progressBar.setProgress(newProgress);
+                          } else {
+                              progressBar.setVisibility(View.GONE);
+                          }
+                      }
+
+                      @Override
+                      public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+                          if (MainActivity.this.filePathCallback != null) {
+                              MainActivity.this.filePathCallback.onReceiveValue(null);
+                          }
+                          MainActivity.this.filePathCallback = filePathCallback;
+                          try {
+                              startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_REQUEST_CODE);
+                          } catch (Exception e) {
+                              MainActivity.this.filePathCallback = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+
+                  webView.setDownloadListener(new DownloadListener() {
+                      @Override
+                      public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                          try {
+                              startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                          } catch (Exception ignored) {}
+                      }
+                  });
+
+                  webView.loadUrl(SITE_URL, cleanHeaders);
+              }
+
+              @Override
+              protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                  super.onActivityResult(requestCode, resultCode, data);
+                  if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+                      if (filePathCallback != null) {
+                          Uri[] results = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                          filePathCallback.onReceiveValue(results);
+                          filePathCallback = null;
+                      }
                   }
               }
 
               @Override
-              protected void onSaveInstanceState(Bundle outState) {
-                  super.onSaveInstanceState(outState);
-                  outState.putBoolean("hasLaunched", hasLaunched);
-              }
-
-              @Override
-              protected void onResume() {
-                  super.onResume();
-                  if (hasLaunched) {
-                      finish();
+              public void onBackPressed() {
+                  if (webView.canGoBack()) {
+                      webView.goBack();
                   } else {
-                      hasLaunched = true;
-                      openWebsite();
-                  }
-              }
-
-              private void openWebsite() {
-                  Uri uri = Uri.parse(SITE_URL);
-                  try {
-                      CustomTabColorSchemeParams params = new CustomTabColorSchemeParams.Builder()
-                              .setToolbarColor(Color.parseColor("#004b8d"))
-                              .build();
-
-                      CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder()
-                              .setDefaultColorSchemeParams(params)
-                              .setShowTitle(true)
-                              .setUrlBarHidingEnabled(true)
-                              .build();
-
-                      customTabsIntent.launchUrl(this, uri);
-                  } catch (Exception e) {
-                      Intent fallback = new Intent(Intent.ACTION_VIEW, uri);
-                      startActivity(fallback);
+                      super.onBackPressed();
                   }
               }
           }
